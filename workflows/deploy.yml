@@ -1,0 +1,57 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: v${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/todo-list:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/todo-list:${{ env.VERSION }}
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/todo-list"
+            if ! command -v docker >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update -y
+                sudo apt-get install -y docker.io
+              elif command -v dnf >/dev/null 2>&1; then
+                sudo dnf install -y docker
+              elif command -v yum >/dev/null 2>&1; then
+                sudo yum install -y docker
+              fi
+            fi
+            sudo systemctl enable --now docker
+            sudo usermod -aG docker ${{ secrets.EC2_USER }} || true
+            sudo docker pull ${IMAGE}:${{ env.VERSION }}
+            sudo docker rm -f todo-list || true
+            sudo docker run -d --name todo-list --restart unless-stopped -p 8000:8000 ${IMAGE}:${{ env.VERSION }}
+            sudo docker image prune -af
+            sudo docker ps --filter name=todo-list
