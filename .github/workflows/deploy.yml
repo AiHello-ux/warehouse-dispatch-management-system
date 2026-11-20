@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -26,8 +26,8 @@ jobs:
           file: dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/todo-list:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/todo-list:${{ env.VERSION }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/warehouse:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/warehouse:${{ env.VERSION }}
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -37,7 +37,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/todo-list"
+            IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/warehouse"
             if ! command -v docker >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
                 sudo apt-get update -y
@@ -51,7 +51,7 @@ jobs:
             sudo systemctl enable --now docker
             sudo usermod -aG docker ${{ secrets.EC2_USER }} || true
             sudo docker pull ${IMAGE}:${{ env.VERSION }}
-            sudo docker rm -f todo-list || true
-            sudo docker run -d --name todo-list --restart unless-stopped -p 8000:8000 ${IMAGE}:${{ env.VERSION }}
+            sudo docker rm -f warehouse || true
+            sudo docker run -d --name warehouse --restart unless-stopped -p 8001:8001 ${IMAGE}:${{ env.VERSION }}
             sudo docker image prune -af
-            sudo docker ps --filter name=todo-list
+            sudo docker ps --filter name=warehouse
